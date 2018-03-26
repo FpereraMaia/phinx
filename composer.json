@@ -6,6 +6,7 @@
     "homepage": "https://phinx.org",
     "license": "MIT",
     "version": "0.9.3",
+    "minimum-stability": "dev",
     "authors": [{
         "name": "Rob Morgan",
         "email": "robbym@gmail.com",
