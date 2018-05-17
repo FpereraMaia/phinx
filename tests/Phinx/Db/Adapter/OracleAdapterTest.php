@@ -355,13 +355,13 @@ class OracleAdapterTest extends TestCase
         $this->assertTrue($this->adapter->hasColumn('T', 'column1'));
         $newColumn1 = new \Phinx\Db\Table\Column();
         $newColumn1->setType('string');
-        $table->changeColumn('column1', $newColumn1);
+        $table->changeColumn('column1', $newColumn1)->save();
         $this->assertTrue($this->adapter->hasColumn('T', 'column1'));
         $newColumn2 = new \Phinx\Db\Table\Column();
         $newColumn2->setName('column2')
             ->setType('string')
             ->setNull(true);
-        $table->changeColumn('column1', $newColumn2);
+        $table->changeColumn('column1', $newColumn2)->save();
         $this->assertFalse($this->adapter->hasColumn('T', 'column1'));
         $this->assertTrue($this->adapter->hasColumn('T', 'column2'));
         $columns = $this->adapter->getColumns('T');
@@ -389,7 +389,7 @@ class OracleAdapterTest extends TestCase
         $newColumn1
             ->setType('string')
             ->setDefault('another test');
-        $table->changeColumn('column1', $newColumn1);
+        $table->changeColumn('column1', $newColumn1)->save();
         $this->assertTrue($this->adapter->hasColumn('T', 'column1'));
 
         $columns = $this->adapter->getColumns('T');
@@ -408,7 +408,7 @@ class OracleAdapterTest extends TestCase
         $newColumn1
             ->setType('string')
             ->setDefault(null);
-        $table->changeColumn('column1', $newColumn1);
+        $table->changeColumn('column1', $newColumn1)->save();
         $columns = $this->adapter->getColumns('T');
 
         $this->adapter->dropTable('T');
@@ -425,7 +425,7 @@ class OracleAdapterTest extends TestCase
         $newColumn1
             ->setType('string')
             ->setDefault(0);
-        $table->changeColumn('column1', $newColumn1);
+        $table->changeColumn('column1', $newColumn1)->save();
         $columns = $this->adapter->getColumns('T');
         $this->adapter->dropTable('T');
         $this->assertSame(0, (int)$columns['column1']->getDefault());
@@ -442,36 +442,38 @@ class OracleAdapterTest extends TestCase
         $this->assertFalse($this->adapter->hasColumn('T', 'column1'));
     }
 
-    public function testGetColumns()
+    /**
+     *
+     * @dataProvider columnsProvider
+     */
+    public function testGetColumns($colName, $type, $options)
     {
         $table = new \Phinx\Db\Table('T', [], $this->adapter);
-        $table->addColumn('column1', 'string', ['null' => true, 'default' => null])
-            ->addColumn('column2', 'integer', ['default' => 0])
-            ->addColumn('column3', 'biginteger', ['default' => 5])
-            ->addColumn('column4', 'text', ['default' => 'text'])
-            ->addColumn('column5', 'float')
-            ->addColumn('column6', 'decimal')
-            ->addColumn('column8', 'timestamp')
-            ->addColumn('column9', 'date')
-            ->addColumn('column10', 'boolean')
-            ->addColumn('column11', 'datetime')
-            ->addColumn('column12', 'binary')
-            ->addColumn('column13', 'string', ['limit' => 10]);
-        $pendingColumns = $table->getPendingColumns();
-        $table->save();
+        $table->addColumn($colName, $type, $options)->save();
+
         $columns = $this->adapter->getColumns('T');
 
+        $this->assertCount(2, $columns);
+        $this->assertEquals($colName, $columns[$colName]->getName());
         $this->adapter->dropTable('T');
+    }
 
-        $this->assertCount(count($pendingColumns) + 1, $columns);
-        for ($i = 0; $i++; $i < count($pendingColumns)) {
-            $this->assertEquals($pendingColumns[$i], $columns[$i + 1]);
-        }
-
-        $this->assertNull($columns['column1']->getDefault());
-        $this->assertSame(0, (int)$columns['column2']->getDefault());
-        $this->assertSame(5, (int)$columns['column3']->getDefault());
-        $this->assertSame("'text'", $columns['column4']->getDefault());
+    public function columnsProvider()
+    {
+        return [
+            ['column1', 'string', ['null' => true, 'default' => null]],
+            ['column2', 'integer', ['default' => 0]],
+            ['column3', 'biginteger', ['default' => 5]],
+            ['column4', 'text', ['default' => 'text']],
+            ['column5', 'float', []],
+            ['column6', 'decimal', []],
+            ['column8', 'timestamp', []],
+            ['column9', 'date', []],
+            ['column10', 'boolean', []],
+            ['column11', 'datetime', []],
+            ['column12', 'binary', []],
+            ['column13', 'string', ['limit' => 10]]
+        ];
     }
 
     public function testAddIndex()
@@ -590,16 +592,12 @@ class OracleAdapterTest extends TestCase
         $refTable->addColumn('FIELD1', 'string')->save();
 
         $table = new \Phinx\Db\Table('TABLE', [], $this->adapter);
-        $table->addColumn('TEF_TABLE_ID', 'integer')->save();
+        $table
+            ->addColumn('TEF_TABLE_ID', 'integer')
+            ->addForeignKey(['TEF_TABLE_ID'], 'TEF_TABLE', ['id'])
+            ->save();
 
-        $fk = new \Phinx\Db\Table\ForeignKey();
-        $fk->setReferencedTable($refTable)
-            ->setColumns(['TEF_TABLE_ID'])
-            ->setReferencedColumns(['id'])
-            ->setConstraint('fk1');
-
-        $this->adapter->addForeignKey($table, $fk);
-        $this->assertTrue($this->adapter->hasForeignKey($table->getName(), ['TEF_TABLE_ID'], 'fk1'));
+        $this->assertTrue($this->adapter->hasForeignKey($table->getName(), ['TEF_TABLE_ID']));
 
         $this->adapter->dropTable('TABLE');
         $this->adapter->dropTable('TEF_TABLE');

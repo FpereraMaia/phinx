@@ -28,10 +28,11 @@
  */
 namespace Phinx\Db\Adapter;
 
-use Phinx\Db\Table;
 use Phinx\Db\Table\Column;
 use Phinx\Db\Table\ForeignKey;
 use Phinx\Db\Table\Index;
+use Phinx\Db\Table\Table;
+use Phinx\Db\Util\AlterInstructions;
 use Phinx\Migration\MigrationInterface;
 
 /**
@@ -158,12 +159,9 @@ class OracleAdapter extends PdoAdapter implements AdapterInterface
     /**
      * {@inheritdoc}
      */
-    public function createTable(Table $table)
+    public function createTable(Table $table, array $columns = [], array $indexes = [])
     {
         $options = $table->getOptions();
-
-        // Add the default primary key
-        $columns = $table->getPendingColumns();
 
         if (!isset($options['id']) || (isset($options['id']) && $options['id'] === true)) {
             $column = new Column();
@@ -211,10 +209,10 @@ class OracleAdapter extends PdoAdapter implements AdapterInterface
         }
 
         // set the foreign keys
-        $foreignKeys = $table->getForeignKeys();
-        foreach ($foreignKeys as $key => $foreignKey) {
-            $sqlBuffer[] = $this->getForeignKeySqlDefinition($foreignKey, $table->getName());
-        }
+//        $foreignKeys = $table->getForeignKeys();
+//        foreach ($foreignKeys as $key => $foreignKey) {
+//            $sqlBuffer[] = $this->getForeignKeySqlDefinition($foreignKey, $table->getName());
+//        }
 
         $sql .= implode(', ', $sqlBuffer);
         $sql .= ')';
@@ -226,13 +224,12 @@ class OracleAdapter extends PdoAdapter implements AdapterInterface
             $this->execute($sql);
         }
         // set the indexes
-        $indexes = $table->getIndexes();
+//        $indexes = $table->getIndexes();
 
-        if (!empty($indexes)) {
-            foreach ($indexes as $index) {
-                $sql = $this->getIndexSqlDefinition($index, $table->getName());
-                $this->execute($sql);
-            }
+
+        foreach ($indexes as $index) {
+            $sql = $this->getIndexSqlDefinition($index, $table->getName());
+            $this->execute($sql);
         }
 
         if (!$this->hasSequence($table->getName())) {
@@ -270,13 +267,16 @@ class OracleAdapter extends PdoAdapter implements AdapterInterface
     protected function getColumnCommentSqlDefinition(Column $column, $tableName)
     {
         $comment = (strcasecmp($column->getComment(), 'NULL') !== 0) ? $column->getComment() : '';
+        $instructions = new AlterInstructions();
 
-        return sprintf(
+        $instructions->addPostStep(sprintf(
             "COMMENT ON COLUMN \"%s\".\"%s\" IS '%s'",
             $tableName,
             $column->getName(),
             str_replace("'", "", $comment)
-        );
+        ));
+
+        return $instructions;
     }
 
     /**
@@ -1101,5 +1101,117 @@ SQL;
         }
 
         return $result;
+    }
+
+    protected function getAddColumnInstructions(Table $table, Column $column)
+    {
+        $alter = sprintf(
+            'ALTER TABLE %s ADD %s %s',
+            $this->quoteTableName($table->getName()),
+            $this->quoteColumnName($column->getName()),
+            $this->getColumnSqlDefinition($column)
+        );
+
+        return new AlterInstructions([], [$alter]);
+    }
+
+    protected function getRenameColumnInstructions($tableName, $columnName, $newColumnName)
+    {
+        if (!$this->hasColumn($tableName, $columnName)) {
+            throw new \InvalidArgumentException("The specified column does not exist: $columnName");
+        }
+
+        $instructions = new AlterInstructions();
+
+        $instructions->addPostStep(
+            sprintf(
+                "alter table \"%s\" rename column \"%s\" TO \"%s\"",
+                $tableName,
+                $columnName,
+                $newColumnName
+            )
+        );
+
+        return $instructions;
+    }
+
+    protected function getChangeColumnInstructions($tableName, $columnName, Column $newColumn)
+    {
+        $columns = $this->getColumns($tableName);
+
+        $instructions = new AlterInstructions();
+        if ($columnName !== $newColumn->getName()) {
+            $instructions->merge(
+                $this->getRenameColumnInstructions($tableName, $columnName, $newColumn->getName())
+            );
+        }
+
+        $setNullSql = ($newColumn->isNull() == $columns[$columnName]->isNull() ? false : true);
+
+        $instructions->addPostStep(
+            sprintf(
+                'ALTER TABLE %s MODIFY(%s %s)',
+                $this->quoteTableName($tableName),
+                $this->quoteColumnName($newColumn->getName()),
+                $this->getColumnSqlDefinition($newColumn, $setNullSql)
+            )
+        );
+
+        if ($newColumn->getComment()) {
+            $sql = $this->getColumnCommentSqlDefinition($newColumn, $tableName);
+            $instructions->merge($sql);
+        }
+
+        return $instructions;
+    }
+
+    protected function getDropColumnInstructions($tableName, $columnName)
+    {
+        return;
+    }
+
+    protected function getAddIndexInstructions(Table $table, Index $index)
+    {
+        $sql = $this->getIndexSqlDefinition($index, $table->getName());
+
+        return new AlterInstructions([], [$sql]);
+    }
+
+    protected function getDropIndexByColumnsInstructions($tableName, $columns)
+    {
+        return;
+    }
+
+    protected function getDropIndexByNameInstructions($tableName, $indexName){
+        return;
+    }
+
+    protected function getAddForeignKeyInstructions(Table $table, ForeignKey $foreignKey)
+    {
+        $alter = sprintf(
+            'ADD %s',
+            $this->getForeignKeySqlDefinition($foreignKey, $table->getName())
+        );
+
+        return new AlterInstructions([$alter]);
+
+    }
+    protected function getDropForeignKeyInstructions($tableName, $constraint)
+    {
+        return;
+    }
+
+    protected function getDropTableInstructions($tableName)
+    {
+        return;
+    }
+
+    protected function getDropForeignKeyByColumnsInstructions($tableName, $columns){
+        return;
+    }
+
+    protected function getRenameTableInstructions($tableName, $newTableName)
+    {
+        return;
     }
 }
